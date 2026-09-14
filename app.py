@@ -1,3 +1,6 @@
+import os
+st.write("Files found on server:", os.listdir("."))
+
 import streamlit as st
 from google import genai
 import os
