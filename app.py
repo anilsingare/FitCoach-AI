@@ -1,4 +1,3 @@
-import os
 import streamlit as st
 from google import genai
 import os
@@ -15,12 +14,17 @@ st.markdown("Your Personal Data-Driven Fitness Expert")
 @st.cache_resource
 def get_gemini_client():
     try:
+        # Try Cloud Secrets (Streamlit Cloud)
         api_key = st.secrets["GOOGLE_API_KEY"]
     except:
-        api_key = os.getenv("GOOGLE_API_KEY")
-    
+        try:
+            # Try .env file (Local Laptop)
+            api_key = os.getenv("GOOGLE_API_KEY")
+        except:
+            api_key = None
+
     if not api_key:
-        st.error("API Key not found!")
+        st.error("API Key not found! Please check your .env file or Cloud Secrets.")
         st.stop()
     return genai.Client(api_key=api_key)
 
@@ -31,11 +35,18 @@ model_id = "gemini-3.6-flash"
 @st.cache_data
 def load_fitness_df():
     try:
-        # We return the actual DataFrame, NOT a string
-        df = pd.read_csv("fitness_data.csv")
+        # --- CLOUD-READY PATHING ---
+        # This finds the folder where app.py is located
+        base_path = os.path.dirname(__file__) 
+        # This joins the folder path with the filename
+        file_path = os.path.join(base_path, "fitness_data.csv")
+        
+        # Read the CSV using the absolute path
+        df = pd.read_csv(file_path)
         return df.dropna()
     except Exception as e:
         st.error(f"CSV Error: {e}")
+        st.info("Make sure 'fitness_data.csv' is uploaded to the MAIN folder of your GitHub repo.")
         return None
 
 df = load_fitness_df()
@@ -45,16 +56,12 @@ def search_fitness_data(query):
     if df is None:
         return "No data available."
     
-    # Convert query to lowercase for better matching
     query = query.lower()
-    
-    # Search for the query in all columns of the DataFrame
-    # This finds any row that contains the keyword
+    # Search for keywords in all columns of the DataFrame
     mask = df.apply(lambda row: row.astype(str).str.contains(query, case=False).any(), axis=1)
     relevant_rows = df[mask]
     
     if not relevant_rows.empty:
-        # Return only the top 10 matching rows to save tokens
         return relevant_rows.head(10).to_string(index=False)
     return "No specific data found in the dataset for this query."
 
@@ -78,7 +85,7 @@ if prompt := st.chat_input("What's your fitness goal today?"):
             # STEP 1: Search the CSV for only relevant data
             relevant_data = search_fitness_data(prompt)
             
-            # STEP 2: Create a dynamic system prompt for THIS specific question
+            # STEP 2: Create a dynamic system prompt
             dynamic_prompt = f"""
             You are 'FitCoach AI', a certified elite fitness coach.
             
@@ -92,8 +99,7 @@ if prompt := st.chat_input("What's your fitness goal today?"):
             4. Be professional and motivating.
             """
             
-            # STEP 3: Send only the relevant data to the AI
-            # We use a new chat session for every request to keep the prompt clean
+            # STEP 3: Generate content
             response = client.models.generate_content(
                 model=model_id,
                 config={'system_instruction': dynamic_prompt},
